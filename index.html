@@ -35,7 +35,7 @@ const submit = createForm.querySelector('button[type="submit"]');
 submit.disabled = true;
 const info = document.createElement('p');
 info.className = 'muted';
-info.textContent = 'Création et inscriptions désactivées temporairement : nous activerons les écritures sécurisées à la prochaine étape.';
+info.textContent = 'Création d’instances réservée aux responsables : bientôt disponible.';
 createForm.append(info);
 const refresh = document.createElement('button');
 refresh.type = 'button';
@@ -56,6 +56,7 @@ if (!configured) {
   const profileSave = $('saveProfile');
   let currentUserId = null;
   let profileLoadNumber = 0;
+  let raidRefreshId = 0;
   async function loadProfile(userId) {
     const requestNumber = ++profileLoadNumber;
     profileMessage.textContent = 'Chargement du personnage…';
@@ -101,6 +102,7 @@ if (!configured) {
       ++profileLoadNumber;
       profilePanel.hidden = !nextId;
       if (nextId) loadProfile(nextId);
+      loadRaids();
       else { profileForm.reset(); profileMessage.textContent = ''; }
     }
     login.hidden = !!user;
@@ -130,24 +132,58 @@ if (!configured) {
     renderUser(data?.session?.user ?? null);
   }).catch(err => { authError.textContent = 'Erreur de session : ' + err.message; renderUser(null); });
   async function loadRaids() {
+    const requestId = ++raidRefreshId;
     status.textContent = 'Chargement des instances depuis Supabase…';
-    root.replaceChildren();
     const {data, error} = await supabase.from('raids').select('id,name,starts_at,max_players,discord_notification').order('starts_at', {ascending:true});
-    if (error) { status.textContent = 'Erreur Supabase : ' + error.message; $('count').textContent = ''; return; }
-    status.textContent = 'Connexion Supabase réussie !';
-    $('count').textContent = data.length + ' instance(s)';
-    if (!data.length) root.append(el('p','Aucune instance dans Supabase.','empty'));
+    if (requestId !== raidRefreshId) return;
+    if (error) { status.textContent = 'Erreur Supabase : ' + error.message; return; }
+    const { data: sessionData } = await supabase.auth.getSession();
+    const loggedIn = !!sessionData?.session;
+    let mine = new Set();
+    if (loggedIn) {
+      const result = await supabase.rpc('my_raid_ids');
+      if (result.error) { status.textContent = 'Erreur inscriptions : '+result.error.message; return; }
+      mine = new Set((result.data || []).map(x => x.raid_id));
+    }
+    const cards = [];
     for (const raid of data) {
+      let participants = [];
+      if (loggedIn) {
+        const result = await supabase.rpc('raid_participants', {p_raid_id:raid.id});
+        if (result.error) { status.textContent='Erreur participants : '+result.error.message; return; }
+        participants = result.data || [];
+      }
       const card=el('article',undefined,'raid');
       const top=el('div',undefined,'top');
-      top.append(el('h2',raid.name),el('span',raid.max_players+' places maximum','pill'));
+      top.append(el('h2',raid.name),el('span',participants.length+' / '+raid.max_players+' places','pill'));
       card.append(top);
       const date = new Date(raid.starts_at);
       const when = new Intl.DateTimeFormat('fr-FR',{dateStyle:'full',timeStyle:'short',timeZone:'Europe/Paris'}).format(date);
       card.append(el('p','📅 '+when+' · Discord : '+(raid.discord_notification?'notification prévue':'désactivé'),'muted'));
-      card.append(el('p','Inscriptions bientôt disponibles avec la connexion Discord.','muted'));
-      root.append(card);
+      if (loggedIn) {
+        const list=el('ul',undefined,'members');
+        for (const p of participants) list.append(el('li',p.nickname+' — '+p.player_class));
+        if (!participants.length) card.append(el('p','Aucun participant pour le moment.','muted'));
+        else card.append(list);
+        const enrolled = mine.has(raid.id);
+        const button=el('button',enrolled?'Se désinscrire':'Rejoindre l’instance');
+        button.disabled = !enrolled && participants.length >= raid.max_players;
+        button.addEventListener('click',async()=>{
+          button.disabled=true;
+          status.textContent='Enregistrement en cours…';
+          const {error}=await supabase.rpc(enrolled?'leave_raid':'join_raid',{p_raid_id:raid.id});
+          if(error){status.textContent='Erreur : '+error.message;button.disabled=false;return;}
+          await loadRaids();
+        });
+        card.append(button);
+      } else card.append(el('p','Connecte-toi avec Discord pour consulter les participants et t’inscrire.','muted'));
+      cards.push(card);
     }
+    if (requestId !== raidRefreshId) return;
+    root.replaceChildren(...cards);
+    if (!data.length) root.append(el('p','Aucune instance dans Supabase.','empty'));
+    $('count').textContent = data.length + ' instance(s)';
+    status.textContent = 'Connexion Supabase réussie !';
   }
   refresh.addEventListener('click',loadRaids);
   loadRaids();
