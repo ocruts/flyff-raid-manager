@@ -1,1 +1,35 @@
-
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flyff Raid Manager</title>
+<style>
+:root{font-family:system-ui,Arial,sans-serif;color:#f2efff;background:#111323}*{box-sizing:border-box}body{margin:0}header{padding:26px max(20px,calc((100vw - 1050px)/2));background:#1b1d34;border-bottom:1px solid #353655}h1{margin:0;font-size:28px}header p{color:#b9b6d3;margin:8px 0 0}main{max-width:1050px;margin:30px auto;padding:0 18px}.panel,.raid{background:#20223a;border:1px solid #393b5b;border-radius:16px;padding:22px;margin-bottom:20px}h2{margin-top:0;font-size:21px}label{display:block;margin:12px 0 5px;color:#d6d1ee}input,select,button{font:inherit;border-radius:9px;padding:11px}input,select{width:100%;background:#15172b;border:1px solid #525374;color:white}button{border:0;background:#8669e8;color:white;cursor:pointer;font-weight:700}button:hover{background:#9c84ed}button.secondary{background:#3a3d61}button.danger{background:#793e59}button:disabled{opacity:.45;cursor:not-allowed}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#bbb8d1}.pill{background:#3b3464;border-radius:999px;padding:6px 12px}.members{padding-left:20px}.members li{margin:8px 0}.members button{padding:4px 8px;margin-left:10px}.empty{color:#c2bfd7}#message{min-height:24px;color:#bdb0ff}@media(max-width:650px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>⚔️ Flyff Raid Manager</h1><p>Organise les instances de ta guilde Flyff Universe</p></header>
+<main>
+<section class="panel"><h2>Créer une instance</h2>
+<form id="createForm"><div class="grid"><div><label for="raidName">Nom de l'instance</label><input id="raidName" required maxlength="70" placeholder="Ankou 20h10"></div><div><label for="raidDate">Date</label><input id="raidDate" type="date" required></div><div><label for="raidTime">Heure</label><input id="raidTime" type="time" required value="21:10"></div><div><label for="raidSlots">Nombre de places (1 à 40)</label><input id="raidSlots" type="number" min="1" max="40" required value="8"></div></div><label><input id="discordPing" type="checkbox" style="width:auto" checked> Notification Discord souhaitée (non active en V1)</label><p><button type="submit">+ Créer l'instance</button></p></form><p id="message" role="status"></p></section>
+<section><div class="top"><h2>Instances programmées</h2><span id="count" class="muted"></span></div><div id="raids"></div></section>
+</main>
+<script>
+'use strict';
+const STORAGE_KEY='flyff-raid-manager-v1';
+const $=id=>document.getElementById(id);
+const defaultRaids=[{id:'demo-ankou',name:'Ankou 20h10',date:'2026-11-18',time:'21:10',slots:8,discordPing:true,players:[]}];
+function load(){try{const data=JSON.parse(localStorage.getItem(STORAGE_KEY));return Array.isArray(data)?data:defaultRaids}catch{return defaultRaids}}
+let raids=load();
+function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(raids))}
+function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
+function action(label,fn,cls){const b=el('button',label,cls);b.type='button';b.addEventListener('click',fn);return b}
+function render(){const root=$('raids');root.replaceChildren();$('count').textContent=raids.length+' instance(s)';if(!raids.length)root.append(el('p','Aucune instance pour le moment.','empty'));
+for(const raid of [...raids].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time))){const card=el('article',undefined,'raid');const top=el('div',undefined,'top');top.append(el('h2',raid.name),el('span',`${raid.players.length}/${raid.slots} places`,'pill'));card.append(top);card.append(el('p',`📅 ${raid.date} à ${raid.time} · Discord : ${raid.discordPing?'prévu (non connecté)':'désactivé'}`,'muted'));
+const list=el('ul',undefined,'members');for(const p of raid.players){const li=el('li',`${p.name} — ${p.role} `);li.append(action('Retirer',()=>{raid.players=raid.players.filter(x=>x.name!==p.name);save();render()},'danger'));list.append(li)}card.append(list);
+if(raid.players.length<raid.slots){const form=el('form');const grid=el('div',undefined,'grid');const name=el('input');name.placeholder='Pseudo Flyff';name.required=true;name.maxLength=32;name.setAttribute('aria-label','Pseudo Flyff');const role=el('select');role.setAttribute('aria-label','Classe');for(const r of ['Chevalier','Prêtre','Moine','DPS','Autre']){const option=el('option',r);option.value=r;role.append(option)}grid.append(name,role);form.append(grid);const submit=el('button',"S'inscrire");submit.type='submit';submit.style.marginTop='12px';form.append(submit);form.addEventListener('submit',e=>{e.preventDefault();const pseudo=name.value.trim();if(!pseudo)return;if(raid.players.some(p=>p.name.toLocaleLowerCase()===pseudo.toLocaleLowerCase())){alert('Ce pseudo est déjà inscrit à cette instance.');return}if(raid.players.length>=raid.slots)return;raid.players.push({name:pseudo,role:role.value});save();render()});card.append(form)}else card.append(el('p','Instance complète !','muted'));
+card.append(el('hr'));card.append(action('Supprimer cette instance',()=>{if(confirm('Supprimer cette instance et ses inscriptions ?')){raids=raids.filter(r=>r.id!==raid.id);save();render()}},'danger'));root.append(card)}}
+$('createForm').addEventListener('submit',e=>{e.preventDefault();const slots=Number($('raidSlots').value);if(!Number.isInteger(slots)||slots<1||slots>40)return;raids.push({id:crypto.randomUUID(),name:$('raidName').value.trim(),date:$('raidDate').value,time:$('raidTime').value,slots,discordPing:$('discordPing').checked,players:[]});save();render();$('createForm').reset();$('raidSlots').value='8';$('raidTime').value='21:10';$('message').textContent='Instance créée dans ce navigateur !'});
+render();
+</script>
+</body></html>
