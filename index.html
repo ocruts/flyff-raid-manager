@@ -4,13 +4,16 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Flyff Raid Manager</title>
 <style>
-:root{font-family:system-ui,Arial,sans-serif;color:#f2efff;background:#111323}*{box-sizing:border-box}body{margin:0}header{padding:26px max(20px,calc((100vw - 1050px)/2));background:#1b1d34;border-bottom:1px solid #353655}h1{margin:0;font-size:28px}header p{color:#b9b6d3;margin:8px 0 0}main{max-width:1050px;margin:30px auto;padding:0 18px}.panel,.raid{background:#20223a;border:1px solid #393b5b;border-radius:16px;padding:22px;margin-bottom:20px}h2{margin-top:0;font-size:21px}label{display:block;margin:12px 0 5px;color:#d6d1ee}input,select,button{font:inherit;border-radius:9px;padding:11px}input,select{width:100%;background:#15172b;border:1px solid #525374;color:white}button{border:0;background:#8669e8;color:white;cursor:pointer;font-weight:700}button:hover{background:#9c84ed}button.secondary{background:#3a3d61}button.danger{background:#793e59}button:disabled{opacity:.45;cursor:not-allowed}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#bbb8d1}.pill{background:#3b3464;border-radius:999px;padding:6px 12px}.members{padding-left:20px}.members li{margin:8px 0}.members button{padding:4px 8px;margin-left:10px}.empty{color:#c2bfd7}#message{min-height:24px;color:#bdb0ff}@media(max-width:650px){.grid{grid-template-columns:1fr}}
+:root{font-family:system-ui,Arial,sans-serif;color:#f2efff;background:#111323}*{box-sizing:border-box}body{margin:0}header{padding:26px max(20px,calc((100vw - 1050px)/2));background:#1b1d34;border-bottom:1px solid #353655}h1{margin:0;font-size:28px}header p{color:#b9b6d3;margin:8px 0 0}main{max-width:1050px;margin:30px auto;padding:0 18px}.panel,.raid{background:#20223a;border:1px solid #393b5b;border-radius:16px;padding:22px;margin-bottom:20px}h2{margin-top:0;font-size:21px}label{display:block;margin:12px 0 5px;color:#d6d1ee}input,select,button{font:inherit;border-radius:9px;padding:11px}input,select{width:100%;background:#15172b;border:1px solid #525374;color:white}button{border:0;background:#8669e8;color:white;cursor:pointer;font-weight:700}button:hover{background:#9c84ed}button.secondary{background:#3a3d61}button.danger{background:#793e59}button:disabled{opacity:.45;cursor:not-allowed}[hidden]{display:none!important}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#bbb8d1}.pill{background:#3b3464;border-radius:999px;padding:6px 12px}.members{padding-left:20px}.members li{margin:8px 0}.members button{padding:4px 8px;margin-left:10px}.empty{color:#c2bfd7}#message{min-height:24px;color:#bdb0ff}@media(max-width:650px){.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header><h1>⚔️ Flyff Raid Manager</h1><p>Organise les instances de ta guilde Flyff Universe</p></header>
 <main>
 <section class="panel" aria-label="Compte Discord"><div class="top"><div><h2>Compte Discord</h2><p id="authState" class="muted">Vérification de la connexion…</p></div><div><button id="loginDiscord" type="button" disabled>Se connecter avec Discord</button> <button id="logoutDiscord" type="button" class="secondary" hidden>Se déconnecter</button></div></div><p id="authError" role="alert" class="muted"></p></section>
+<section class="panel" id="profilePanel" hidden><h2>🎮 Mon personnage Flyff</h2>
+<p class="muted">Ce profil est lié à ton compte Discord connecté.</p>
+<form id="profileForm"><div class="grid"><div><label for="flyffNickname">Pseudo du personnage</label><input id="flyffNickname" minlength="2" maxlength="30" required autocomplete="off" placeholder="Ex. Ocruts"></div><div><label for="flyffClass">Classe du personnage</label><select id="flyffClass" required><option value="">Choisir une classe</option><option>Chevalier</option><option>Assassin</option><option>Moine</option><option>Prêtre</option><option>Sorcier</option><option>Élémentaliste</option><option>Jester</option><option>Ranger</option><option>Autre</option></select></div></div><p><button id="saveProfile" type="submit">💾 Enregistrer mon personnage</button></p></form><p id="profileMessage" role="status" class="muted"></p></section>
 <section class="panel"><h2>Créer une instance</h2>
 <form id="createForm"><div class="grid"><div><label for="raidName">Nom de l'instance</label><input id="raidName" required maxlength="70" placeholder="Ankou 20h10"></div><div><label for="raidDate">Date</label><input id="raidDate" type="date" required></div><div><label for="raidTime">Heure</label><input id="raidTime" type="time" required value="21:10"></div><div><label for="raidSlots">Nombre de places (1 à 40)</label><input id="raidSlots" type="number" min="1" max="40" required value="8"></div></div><label><input id="discordPing" type="checkbox" style="width:auto" checked> Notification Discord souhaitée (non active en V1)</label><p><button type="submit">+ Créer l'instance</button></p></form><p id="message" role="status"></p></section>
 <section><div class="top"><h2>Instances programmées</h2><span id="count" class="muted"></span></div><div id="raids"></div></section>
@@ -47,7 +50,59 @@ if (!configured) {
   authState.textContent = 'Configuration Supabase manquante.';
 } else {
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  const profilePanel = $('profilePanel');
+  const profileForm = $('profileForm');
+  const profileMessage = $('profileMessage');
+  const profileSave = $('saveProfile');
+  let currentUserId = null;
+  let profileLoadNumber = 0;
+  async function loadProfile(userId) {
+    const requestNumber = ++profileLoadNumber;
+    profileMessage.textContent = 'Chargement du personnage…';
+    profileSave.disabled = true;
+    $('flyffNickname').value = '';
+    $('flyffClass').value = '';
+    const { data, error } = await supabase.from('flyff_profiles')
+      .select('nickname,player_class').eq('user_id', userId).maybeSingle();
+    if (requestNumber !== profileLoadNumber || currentUserId !== userId) return;
+    profileSave.disabled = false;
+    if (error) { profileMessage.textContent = 'Erreur de chargement : ' + error.message; return; }
+    if (data) {
+      $('flyffNickname').value = data.nickname;
+      $('flyffClass').value = data.player_class;
+      profileMessage.textContent = 'Personnage enregistré dans Supabase.';
+    } else {
+      profileMessage.textContent = 'Renseigne ton personnage pour commencer.';
+    }
+  }
+  profileForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const userId = currentUserId;
+    if (!userId) { profileMessage.textContent = 'Connecte-toi avec Discord.'; return; }
+    const nickname = $('flyffNickname').value.trim();
+    const player_class = $('flyffClass').value;
+    if (nickname.length < 2 || nickname.length > 30 || !player_class) {
+      profileMessage.textContent = 'Indique un pseudo de 2 à 30 caractères et une classe.'; return;
+    }
+    profileSave.disabled = true;
+    profileMessage.textContent = 'Enregistrement en cours…';
+    const { error } = await supabase.from('flyff_profiles').upsert(
+      { user_id: userId, nickname, player_class }, { onConflict: 'user_id' }
+    );
+    if (currentUserId === userId) {
+      profileSave.disabled = false;
+      profileMessage.textContent = error ? 'Erreur Supabase : ' + error.message : '✅ Ton personnage a été enregistré !';
+    }
+  });
   function renderUser(user) {
+    const nextId = user?.id ?? null;
+    if (nextId !== currentUserId) {
+      currentUserId = nextId;
+      ++profileLoadNumber;
+      profilePanel.hidden = !nextId;
+      if (nextId) loadProfile(nextId);
+      else { profileForm.reset(); profileMessage.textContent = ''; }
+    }
     login.hidden = !!user;
     login.disabled = false;
     logout.hidden = !user;
