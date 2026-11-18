@@ -101,9 +101,14 @@ if (!configured) {
       currentUserId = nextId;
       ++profileLoadNumber;
       profilePanel.hidden = !nextId;
-      if (nextId) loadProfile(nextId);
+
+      if (nextId) {
+        loadProfile(nextId);
+      } else {
+        profileForm.reset();
+        profileMessage.textContent = '';
+      }
       loadRaids();
-      else { profileForm.reset(); profileMessage.textContent = ''; }
     }
     login.hidden = !!user;
     login.disabled = false;
