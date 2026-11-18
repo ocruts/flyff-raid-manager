@@ -14,22 +14,55 @@
 <form id="createForm"><div class="grid"><div><label for="raidName">Nom de l'instance</label><input id="raidName" required maxlength="70" placeholder="Ankou 20h10"></div><div><label for="raidDate">Date</label><input id="raidDate" type="date" required></div><div><label for="raidTime">Heure</label><input id="raidTime" type="time" required value="21:10"></div><div><label for="raidSlots">Nombre de places (1 à 40)</label><input id="raidSlots" type="number" min="1" max="40" required value="8"></div></div><label><input id="discordPing" type="checkbox" style="width:auto" checked> Notification Discord souhaitée (non active en V1)</label><p><button type="submit">+ Créer l'instance</button></p></form><p id="message" role="status"></p></section>
 <section><div class="top"><h2>Instances programmées</h2><span id="count" class="muted"></span></div><div id="raids"></div></section>
 </main>
-<script>
-'use strict';
-const STORAGE_KEY='flyff-raid-manager-v1';
-const $=id=>document.getElementById(id);
-const defaultRaids=[{id:'demo-ankou',name:'Ankou 20h10',date:'2026-11-18',time:'21:10',slots:8,discordPing:true,players:[]}];
-function load(){try{const data=JSON.parse(localStorage.getItem(STORAGE_KEY));return Array.isArray(data)?data:defaultRaids}catch{return defaultRaids}}
-let raids=load();
-function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(raids))}
-function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
-function action(label,fn,cls){const b=el('button',label,cls);b.type='button';b.addEventListener('click',fn);return b}
-function render(){const root=$('raids');root.replaceChildren();$('count').textContent=raids.length+' instance(s)';if(!raids.length)root.append(el('p','Aucune instance pour le moment.','empty'));
-for(const raid of [...raids].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time))){const card=el('article',undefined,'raid');const top=el('div',undefined,'top');top.append(el('h2',raid.name),el('span',`${raid.players.length}/${raid.slots} places`,'pill'));card.append(top);card.append(el('p',`📅 ${raid.date} à ${raid.time} · Discord : ${raid.discordPing?'prévu (non connecté)':'désactivé'}`,'muted'));
-const list=el('ul',undefined,'members');for(const p of raid.players){const li=el('li',`${p.name} — ${p.role} `);li.append(action('Retirer',()=>{raid.players=raid.players.filter(x=>x.name!==p.name);save();render()},'danger'));list.append(li)}card.append(list);
-if(raid.players.length<raid.slots){const form=el('form');const grid=el('div',undefined,'grid');const name=el('input');name.placeholder='Pseudo Flyff';name.required=true;name.maxLength=32;name.setAttribute('aria-label','Pseudo Flyff');const role=el('select');role.setAttribute('aria-label','Classe');for(const r of ['Chevalier','Prêtre','Moine','DPS','Autre']){const option=el('option',r);option.value=r;role.append(option)}grid.append(name,role);form.append(grid);const submit=el('button',"S'inscrire");submit.type='submit';submit.style.marginTop='12px';form.append(submit);form.addEventListener('submit',e=>{e.preventDefault();const pseudo=name.value.trim();if(!pseudo)return;if(raid.players.some(p=>p.name.toLocaleLowerCase()===pseudo.toLocaleLowerCase())){alert('Ce pseudo est déjà inscrit à cette instance.');return}if(raid.players.length>=raid.slots)return;raid.players.push({name:pseudo,role:role.value});save();render()});card.append(form)}else card.append(el('p','Instance complète !','muted'));
-card.append(el('hr'));card.append(action('Supprimer cette instance',()=>{if(confirm('Supprimer cette instance et ses inscriptions ?')){raids=raids.filter(r=>r.id!==raid.id);save();render()}},'danger'));root.append(card)}}
-$('createForm').addEventListener('submit',e=>{e.preventDefault();const slots=Number($('raidSlots').value);if(!Number.isInteger(slots)||slots<1||slots>40)return;raids.push({id:crypto.randomUUID(),name:$('raidName').value.trim(),date:$('raidDate').value,time:$('raidTime').value,slots,discordPing:$('discordPing').checked,players:[]});save();render();$('createForm').reset();$('raidSlots').value='8';$('raidTime').value='21:10';$('message').textContent='Instance créée dans ce navigateur !'});
-render();
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Remplace uniquement ces deux valeurs par les informations PUBLIQUES de ton projet.
+const SUPABASE_URL = 'https://ejsxjvjeumgjsvprwwdd.supabase.co/rest/v1/;
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_a-PHo9vsvkJPuL1Dya22CA_XBHBKRqv';
+const $ = id => document.getElementById(id);
+const status = $('message');
+const root = $('raids');
+const createForm = $('createForm');
+const submit = createForm.querySelector('button[type="submit"]');
+submit.disabled = true;
+const info = document.createElement('p');
+info.className = 'muted';
+info.textContent = 'Création et inscriptions désactivées temporairement : nous activerons les écritures sécurisées à la prochaine étape.';
+createForm.append(info);
+const refresh = document.createElement('button');
+refresh.type = 'button';
+refresh.className = 'secondary';
+refresh.textContent = '↻ Actualiser les instances';
+root.before(refresh);
+function el(tag, text, cls) { const node=document.createElement(tag); if(text!==undefined) node.textContent=text; if(cls) node.className=cls; return node; }
+const configured = SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('TON-PROJET') && SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_') && SUPABASE_PUBLISHABLE_KEY !== 'sb_publishable_TA_CLE';
+if (!configured) {
+  status.textContent = 'Configuration requise : renseigne SUPABASE_URL et SUPABASE_PUBLISHABLE_KEY dans index.html.';
+  refresh.disabled = true;
+} else {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  async function loadRaids() {
+    status.textContent = 'Chargement des instances depuis Supabase…';
+    root.replaceChildren();
+    const {data, error} = await supabase.from('raids').select('id,name,starts_at,max_players,discord_notification').order('starts_at', {ascending:true});
+    if (error) { status.textContent = 'Erreur Supabase : ' + error.message; $('count').textContent = ''; return; }
+    status.textContent = 'Connexion Supabase réussie !';
+    $('count').textContent = data.length + ' instance(s)';
+    if (!data.length) root.append(el('p','Aucune instance dans Supabase.','empty'));
+    for (const raid of data) {
+      const card=el('article',undefined,'raid');
+      const top=el('div',undefined,'top');
+      top.append(el('h2',raid.name),el('span',raid.max_players+' places maximum','pill'));
+      card.append(top);
+      const date = new Date(raid.starts_at);
+      const when = new Intl.DateTimeFormat('fr-FR',{dateStyle:'full',timeStyle:'short',timeZone:'Europe/Paris'}).format(date);
+      card.append(el('p','📅 '+when+' · Discord : '+(raid.discord_notification?'notification prévue':'désactivé'),'muted'));
+      card.append(el('p','Inscriptions bientôt disponibles avec la connexion Discord.','muted'));
+      root.append(card);
+    }
+  }
+  refresh.addEventListener('click',loadRaids);
+  loadRaids();
+}
 </script>
 </body></html>
