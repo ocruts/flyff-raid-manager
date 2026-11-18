@@ -10,6 +10,7 @@
 <body>
 <header><h1>⚔️ Flyff Raid Manager</h1><p>Organise les instances de ta guilde Flyff Universe</p></header>
 <main>
+<section class="panel" aria-label="Compte Discord"><div class="top"><div><h2>Compte Discord</h2><p id="authState" class="muted">Vérification de la connexion…</p></div><div><button id="loginDiscord" type="button" disabled>Se connecter avec Discord</button> <button id="logoutDiscord" type="button" class="secondary" hidden>Se déconnecter</button></div></div><p id="authError" role="alert" class="muted"></p></section>
 <section class="panel"><h2>Créer une instance</h2>
 <form id="createForm"><div class="grid"><div><label for="raidName">Nom de l'instance</label><input id="raidName" required maxlength="70" placeholder="Ankou 20h10"></div><div><label for="raidDate">Date</label><input id="raidDate" type="date" required></div><div><label for="raidTime">Heure</label><input id="raidTime" type="time" required value="21:10"></div><div><label for="raidSlots">Nombre de places (1 à 40)</label><input id="raidSlots" type="number" min="1" max="40" required value="8"></div></div><label><input id="discordPing" type="checkbox" style="width:auto" checked> Notification Discord souhaitée (non active en V1)</label><p><button type="submit">+ Créer l'instance</button></p></form><p id="message" role="status"></p></section>
 <section><div class="top"><h2>Instances programmées</h2><span id="count" class="muted"></span></div><div id="raids"></div></section>
@@ -23,6 +24,10 @@ const $ = id => document.getElementById(id);
 const status = $('message');
 const root = $('raids');
 const createForm = $('createForm');
+const login = $('loginDiscord');
+const logout = $('logoutDiscord');
+const authState = $('authState');
+const authError = $('authError');
 const submit = createForm.querySelector('button[type="submit"]');
 submit.disabled = true;
 const info = document.createElement('p');
@@ -39,8 +44,36 @@ const configured = SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes
 if (!configured) {
   status.textContent = 'Configuration requise : renseigne SUPABASE_URL et SUPABASE_PUBLISHABLE_KEY dans index.html.';
   refresh.disabled = true;
+  authState.textContent = 'Configuration Supabase manquante.';
 } else {
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  function renderUser(user) {
+    login.hidden = !!user;
+    login.disabled = false;
+    logout.hidden = !user;
+    const identity = user?.identities?.find(i => i.provider === 'discord');
+    const meta = identity?.identity_data || user?.user_metadata || {};
+    authState.textContent = user ? 'Connecté : ' + (meta.global_name || meta.full_name || meta.user_name || meta.name || user.email || 'Compte Discord') : 'Tu n’es pas connecté.';
+  }
+  login.addEventListener('click', async () => {
+    authError.textContent = '';
+    login.disabled = true;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: 'https://ocruts.github.io/flyff-raid-manager/' }
+    });
+    if (error) { authError.textContent = 'Erreur de connexion : ' + error.message; login.disabled = false; }
+  });
+  logout.addEventListener('click', async () => {
+    authError.textContent = '';
+    const { error } = await supabase.auth.signOut();
+    if (error) authError.textContent = 'Erreur de déconnexion : ' + error.message;
+  });
+  supabase.auth.onAuthStateChange((_event, session) => renderUser(session?.user ?? null));
+  supabase.auth.getSession().then(({data, error}) => {
+    if (error) authError.textContent = 'Erreur de session : ' + error.message;
+    renderUser(data?.session?.user ?? null);
+  }).catch(err => { authError.textContent = 'Erreur de session : ' + err.message; renderUser(null); });
   async function loadRaids() {
     status.textContent = 'Chargement des instances depuis Supabase…';
     root.replaceChildren();
